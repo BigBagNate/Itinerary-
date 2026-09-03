@@ -100,8 +100,39 @@ def pick_provider() -> Dict[str, Any]:
     )
 
 
+def providers_in_order() -> List[Dict[str, Any]]:
+    """Every provider we have a key for, best first. Used to fail over when one
+    runs out of free requests for the day."""
+    env = read_env()
+    forced = (env.get("PROVIDER") or "").strip().lower()
+    order = ([forced] + [n for n in PREFERENCE if n != forced]) if forced in PROVIDERS \
+        else list(PREFERENCE)
+    out = []
+    for name in order:
+        cfg = PROVIDERS[name]
+        key = (env.get(cfg["env"]) or "").strip()
+        if key:
+            out.append({"name": name, "key": key, **cfg})
+    if not out:
+        raise BrainError(
+            "No key found. Put one in the .env file in this folder, on its own line:\n\n"
+            "OPENROUTER_API_KEY=sk-or-your-key-here\n"
+            "  or\n"
+            "NVIDIA_API_KEY=nvapi-your-key-here"
+        )
+    return out
+
+
+def out_of_requests(e: Exception) -> bool:
+    """Is this 'you have used your free allowance', rather than a real fault?"""
+    m = str(e).lower()
+    return any(x in m for x in (
+        "rate limit", "rate-limited", "free tier is busy", "per-day", "per day",
+        "quota", "too many requests", "429", "resourceexhausted", "busy"))
+
+
 def get_key() -> str:          # kept so the key-status check still works
-    return pick_provider()["key"]
+    return providers_in_order()[0]["key"]
 
 
 # ------------------------------------------------------------------ ffmpeg
@@ -241,6 +272,64 @@ def strip_think(s: str) -> str:
     return re.sub(r"</?think>", "", s, flags=re.I).strip()
 
 
+def _repair(s: str) -> Optional[Dict[str, Any]]:
+    """Salvage an answer that got cut off mid-thought.
+
+    Models sometimes stop partway through the JSON, or open with a stray brace.
+    Rather than throw the whole answer away, close what is still open and keep
+    the fields that did arrive."""
+    start = s.find("{")
+    if start < 0:
+        return None
+    s = s[start:]
+    while s.startswith("{") and s[1:].lstrip().startswith("{"):
+        s = s[1:].lstrip()                     # a doubled opening brace
+
+    depth, in_str, esc, stack, last_good = 0, False, False, [], None
+    for i, ch in enumerate(s):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+            if not stack:
+                last_good = i               # a complete object ended here
+    if last_good is not None:
+        try:
+            return json.loads(s[:last_good + 1])
+        except Exception:  # noqa: BLE001
+            pass
+    if not stack:
+        return None
+
+    # cut back to the last thing that finished cleanly, then close what is open
+    body = s
+    if in_str:
+        body = body[:body.rfind('"')]
+        body = body[:body.rfind('"')] if body.count('"') % 2 else body
+    cut = max(body.rfind("}"), body.rfind("]"), body.rfind('"'))
+    if cut > 0:
+        body = body[:cut + 1]
+    for closer in reversed(stack):
+        body += closer
+    for attempt in (body, re.sub(r",\s*([}\]])", r"\1", body)):
+        try:
+            return json.loads(attempt)
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
 def parse_json(s: str) -> Dict[str, Any]:
     s = strip_think(s)
     s = re.sub(r"^```(?:json)?|```$", "", s.strip(), flags=re.M).strip()
@@ -264,6 +353,9 @@ def parse_json(s: str) -> Dict[str, Any]:
                 start = -1
     if found:   # the real answer is the richest object, not a stray fragment
         return max(found, key=len)
+    salvaged = _repair(s)
+    if salvaged:
+        return salvaged
     raise BrainError("The model didn't answer in a readable form. Try again.")
 
 
@@ -366,8 +458,10 @@ def listen_and_read(d: Path, prov: Dict[str, Any]) -> Dict[str, Any]:
 
 # ------------------------------------------------------------------ pass 2
 
-LABEL_PROMPT = """Output a single JSON object and NOTHING else. No explanation, no
-reasoning, no working-out, no markdown fence. Start your reply with {{ and end it with }}.
+LABEL_PROMPT = """Output a single JSON object and NOTHING else. No explanation, no reasoning, no
+working-out, no markdown fence. Exactly one opening brace at the very start and
+one closing brace at the very end. Keep every field short - long answers get cut
+off before you finish.
 
 You are labelling a saved social-media post so a traveller can scan it later.
 
@@ -491,7 +585,7 @@ Text shown on screen:
 {on_screen}
 --------
 
-Reply with the JSON object only. Begin with {{ immediately."""
+Reply with the JSON object only, starting immediately."""
 
 
 GENERIC = {
@@ -679,7 +773,7 @@ def label(meta: Dict[str, Any], heard: Dict[str, str], prov: Dict[str, Any]) -> 
     for model in prov["label_models"]:
         try:
             out = call(model, [{"role": "user", "content": prompt}], prov,
-                       max_tokens=4000, temperature=0.1, timeout=200, tries=2,
+                       max_tokens=7000, temperature=0.1, timeout=240, tries=2,
                        json_only=True)
             res = parse_json(out)
             res["labelled_by"] = model
@@ -694,7 +788,23 @@ def label(meta: Dict[str, Any], heard: Dict[str, str], prov: Dict[str, Any]) -> 
 # ------------------------------------------------------------------ front door
 
 def analyze(item_dir: Path, meta: Dict[str, Any], on_step=None) -> Dict[str, Any]:
-    prov = pick_provider()
+    provs = providers_in_order()
+    last = None
+    for i, prov in enumerate(provs):
+        try:
+            return _analyze_with(item_dir, meta, prov, on_step)
+        except BrainError as e:
+            last = e
+            if not out_of_requests(e) or i == len(provs) - 1:
+                raise
+            nxt = provs[i + 1]["label"]
+            if on_step:
+                on_step(f"{prov['label']} is out of free requests - switching to {nxt}")
+    raise last or BrainError("Could not label this one.")
+
+
+def _analyze_with(item_dir: Path, meta: Dict[str, Any], prov: Dict[str, Any],
+                  on_step=None) -> Dict[str, Any]:
     if on_step:
         on_step(f"Listening to the video and reading the screen ({prov['label']})")
     heard = listen_and_read(item_dir, prov)
