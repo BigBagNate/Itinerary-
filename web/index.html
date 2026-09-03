@@ -118,6 +118,12 @@
   .src{font-size:11px;padding:2px 7px;border-radius:20px;font-weight:650;
     text-transform:uppercase;letter-spacing:.04em;margin-left:auto}
   .src.low{background:#fbe6e9;color:#96233c;font-weight:600}
+  .addr{flex-basis:100%;font-size:13px;color:var(--soft);margin-top:2px}
+  .addr a{color:#1d6f92;text-decoration:none;border-bottom:1px solid #cfe2ec}
+  .addr a:hover{border-bottom-color:#1d6f92}
+  .nomap{font-size:11px;font-weight:650;background:#f3eee7;color:#7a6f62;
+    padding:2px 8px;border-radius:20px}
+  .pin{color:#2f7d55;font-weight:700;margin-right:1px}
   .dropped{font-size:12.5px;color:var(--soft);margin-top:7px;font-style:italic}
   details{margin-top:12px}
   summary{cursor:pointer;font-size:13px;color:var(--soft);user-select:none}
@@ -351,12 +357,15 @@ function card(it){
         + '</p>'
       + (spots.length ? '<div class="spots"><div class="spots-h">Places named in this video</div>'
           + spots.map(x => {
-              const unsure = (x.sure||"medium").toLowerCase() === "low";
-              return '<div class="spot">'
+              return '<div class="spot"'+(x.on_map?"":' style="opacity:.72"')+'>'
                 + '<span class="nm">'+esc(x.name)+'</span>'
                 + (x.kind ? '<span class="kd">'+esc(x.kind)+'</span>' : "")
-                + (unsure ? '<span class="src low" title="the name was hard to make out — check the spelling">check spelling</span>' : "")
+                + (x.on_map ? "" : '<span class="nomap" title="not found on the map">not on the map</span>')
                 + (x.note ? '<span class="nt">'+esc(x.note)+'</span>' : "")
+                + (x.on_map && (x.address||x.map_url) ? '<span class="addr">'
+                    + (x.address ? '<span class="pin">◆</span>'+esc(x.address)+' · ' : "")
+                    + (x.map_url ? '<a href="'+esc(x.map_url)+'" target="_blank" rel="noreferrer">open in maps</a>' : "")
+                  + '</span>' : "")
               + '</div>';
             }).join("")
           + '</div>' : '<div class="dropped">No specific places were named in this one.</div>')
@@ -447,13 +456,20 @@ function placeRow(p){
   const notes = (p.notes||[]).filter(Boolean).join(" · ");
   const twice = (p.seen_in||[]).length > 1
     ? '<span class="twice">in '+p.seen_in.length+' videos</span>' : "";
-  const unsure = (p.sure||"medium").toLowerCase() === "low"
-    ? '<span class="src low" title="the name was hard to make out — check the spelling">check spelling</span>' : "";
-  return '<div class="pl">'
+  const flag = p.on_map
+    ? ""
+    : '<span class="nomap" title="we could not find this on the map — the name may be wrong, or it may be too small to be listed">not on the map</span>';
+  const addr = p.on_map && (p.address || p.map_url)
+    ? '<span class="addr">' + (p.address ? '<span class="pin">◆</span>'+esc(p.address)+' · ' : "")
+      + (p.map_url ? '<a href="'+esc(p.map_url)+'" target="_blank" rel="noreferrer">open in maps</a>' : "")
+      + '</span>'
+    : "";
+  return '<div class="pl"'+(p.on_map?"":' style="opacity:.72"')+'>'
     + '<span class="nm">'+esc(p.name)+'</span>'
     + (p.kind ? '<span class="kd">'+esc(p.kind)+'</span>' : "")
-    + twice + unsure
+    + twice + flag
     + (notes ? '<span class="nt">'+esc(notes)+'</span>' : "")
+    + addr
   + '</div>';
 }
 

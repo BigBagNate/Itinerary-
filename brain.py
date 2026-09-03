@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+import mapcheck
+
 # Two places we can send work. Whichever has a key wins; OpenRouter first if both.
 PROVIDERS = {
     "openrouter": {
@@ -712,6 +714,18 @@ def analyze(item_dir: Path, meta: Dict[str, Any], on_step=None) -> Dict[str, Any
     result["on_screen"] = heard.get("on_screen", "")
     result["heard_audio"] = heard.get("audio_used", False)
     result["saw_frames"] = heard.get("frames_used", 0)
+    place = result.get("place") or {}
+    if result["spots"]:
+        if on_step:
+            on_step("Checking each place against the map")
+        try:
+            result["spots"] = mapcheck.verify_spots(
+                result["spots"], str(place.get("city") or ""),
+                str(place.get("country") or ""))
+        except Exception as e:  # noqa: BLE001
+            result.setdefault("notes", []).append(f"Map check skipped: {e}")
+    result["on_map_count"] = sum(1 for x in result["spots"] if x.get("on_map"))
+
     result["provider"] = prov["label"]
     result["read_by"] = "whisper on this Mac + " + (heard.get("used", {}).get("vision") or "no screen reader")
     result["notes"] = heard.get("notes", [])

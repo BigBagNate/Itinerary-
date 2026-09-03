@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import brain
+import mapcheck
 import trips
 
 ROOT = Path(__file__).parent.resolve()
@@ -285,6 +286,29 @@ def analyze_one(item_id: str):
         raise HTTPException(status_code=404, detail="That item isn't here any more.")
     start_labelling(item_id)
     return {"ok": True, "job": {"state": "working", "step": "Getting started"}}
+
+
+@app.post("/api/recheck-map")
+def recheck_map():
+    """Re-run the map check on everything already saved, without relabelling.
+    Labelling is slow and varies run to run; the map check is neither."""
+    checked = found = 0
+    for d in sorted(LIB.iterdir()):
+        f = d / "record.json"
+        if not d.is_dir() or not f.exists():
+            continue
+        rec = json.loads(f.read_text(encoding="utf-8"))
+        L = rec.get("labels") or {}
+        if not L.get("spots"):
+            continue
+        place = L.get("place") or {}
+        L["spots"] = mapcheck.verify_spots(L["spots"], str(place.get("city") or ""),
+                                           str(place.get("country") or ""))
+        L["on_map_count"] = sum(1 for x in L["spots"] if x.get("on_map"))
+        checked += len(L["spots"])
+        found += L["on_map_count"]
+        f.write_text(json.dumps(rec, indent=2), encoding="utf-8")
+    return {"checked": checked, "found": found}
 
 
 @app.get("/api/trips")

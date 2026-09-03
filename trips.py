@@ -130,7 +130,11 @@ def build(library: Path) -> Dict[str, Any]:
                 # same place from a second video - that's a stronger recommendation
                 hit["seen_in"].append(src)
                 rank = {"high": 3, "medium": 2, "low": 1}
-                if rank.get(sp.get("sure"), 0) > rank.get(hit.get("sure"), 0):
+                if sp.get("on_map") and not hit.get("on_map"):
+                    hit.update({k: sp.get(k, "") for k in
+                                ("name", "address", "map_url", "area", "kind")})
+                    hit["on_map"], hit["sure"] = True, "high"
+                elif rank.get(sp.get("sure"), 0) > rank.get(hit.get("sure"), 0):
                     hit["name"], hit["sure"], hit["source"] = (
                         sp["name"], sp.get("sure"), sp.get("source"))
                 note = brain.clean_note(sp.get("note") or "", sp.get("name", ""))
@@ -142,6 +146,8 @@ def build(library: Path) -> Dict[str, Any]:
                 bucket.append({
                     "name": sp["name"], "kind": sp.get("kind", ""),
                     "sure": sp.get("sure", "medium"), "source": sp.get("source", ""),
+                    "on_map": sp.get("on_map", False), "address": sp.get("address", ""),
+                    "map_url": sp.get("map_url", ""), "area": sp.get("area", ""),
                     "notes": [n for n in [brain.clean_note(sp.get("note") or "",
                                                             sp.get("name", ""))] if n],
                     "seen_in": [src],
@@ -153,7 +159,8 @@ def build(library: Path) -> Dict[str, Any]:
         shown = {}
         for b in BUCKETS:
             items = c["buckets"][b]
-            items.sort(key=lambda x: (-len(x["seen_in"]), x["name"].lower()))
+            items.sort(key=lambda x: (not x.get("on_map"), -len(x["seen_in"]),
+                                      x["name"].lower()))
             if items or b in ALWAYS_SHOW:
                 shown[b] = items
         c["buckets"] = shown

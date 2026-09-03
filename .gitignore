@@ -2,3 +2,4 @@
 .venv/
 library/
 __pycache__/
+.mapcache.json
