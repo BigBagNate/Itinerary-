@@ -400,7 +400,7 @@ Answer with ONE JSON object and nothing else:
   "tips": [
     {{
       "tip": "one piece of practical advice, in one short sentence",
-      "topic": "exactly one of: getting around, money, timing, packing, etiquette, safety, other",
+      "topic": "exactly one of: getting around, timing, money, local know-how, etiquette, packing, safety, other",
       "scope": "city if it only makes sense in this city, anywhere if it is true for any trip"
     }}
   ],
@@ -419,9 +419,32 @@ Rules for "tips":
 - A tip is useful advice that is NOT a place: which train from the airport, what to book
   ahead, how much to tip, what to pack, when to avoid crowds, how to dress.
 - Only include advice the video actually gives. If it gives none, return an empty list.
-- "scope" is "city" if the tip names or depends on this city (a specific train line, a
-  local custom). It is "anywhere" if it would help on any trip (bring a charger, tell
-  your bank before you fly).
+- "scope" decides whether the tip is safe to repeat on a different trip:
+  - "city" if it depends on this place at all - a named train or pass, a local custom,
+    a rule about how things are done here, anything a local would say about THIS city.
+    A custom is city-specific even when it sounds like general advice: "you can refuse
+    to pay for bad food" is a local norm, not a universal right.
+  - "anywhere" ONLY if it would be true and safe in any country - bring a charger,
+    wear comfortable shoes, tell your bank before you travel, book popular things early.
+  - When you are unsure, choose "city". Wrongly promising a local custom works
+    everywhere is worse than filing a general tip under one city.
+
+Pick the tip's topic from this list. Read the definitions - do not guess:
+- getting around  : trains, metro, buses, taxis, airport transfers, walking, driving,
+                    passes and tickets for transport
+- timing          : when to go, what to book ahead and how far, opening hours, best time
+                    of day, how to avoid crowds and queues
+- money           : what things cost, cash vs card, ATMs, tipping amounts, avoiding
+                    overcharging, tourist-trap pricing
+- local know-how  : how to find the good places and avoid the bad ones - who to ask,
+                    what a tourist trap looks like, which streets to skip, how locals
+                    actually do it. Most "insider tip" advice belongs here.
+- etiquette       : customs and manners - how to greet, how to dress, what is rude,
+                    ordering conventions, useful phrases, language
+- packing         : what to bring or wear - shoes, adapters, chargers, clothing
+- safety          : scams, pickpockets, areas to avoid, health
+- other           : LAST RESORT ONLY. If a tip fits any topic above even loosely, use
+                    that one instead. Do not use "other" just because it is convenient.
 
 Rules for "spots" - these matter most:
 - A spot must be a NAMED place someone could look up. "Armando al Pantheon" is a spot.
@@ -472,7 +495,8 @@ GENERIC = {
 
 
 BUCKETS = ["sights", "eats", "activities", "drinks", "shopping", "stays"]
-TOPICS = ["getting around", "money", "timing", "packing", "etiquette", "safety", "other"]
+TOPICS = ["getting around", "timing", "money", "local know-how", "etiquette",
+          "packing", "safety", "other"]
 
 # if the model forgets the bucket, work it out from the kind of place
 KIND_TO_BUCKET = {

@@ -16,9 +16,11 @@ ALWAYS_SHOW = ["sights", "eats", "activities", "drinks"]   # Nathan's four
 BUCKET_LABEL = {"sights": "Sights", "eats": "Eats", "activities": "Activities",
                 "drinks": "Drinks", "shopping": "Shopping", "stays": "Stays"}
 
-TOPIC_ORDER = ["getting around", "timing", "money", "packing", "etiquette", "safety", "other"]
-TOPIC_LABEL = {"getting around": "Getting around", "timing": "Timing & booking",
-               "money": "Money", "packing": "Packing", "etiquette": "Etiquette & language",
+TOPIC_ORDER = ["local know-how", "getting around", "timing", "money", "etiquette",
+               "packing", "safety", "other"]
+TOPIC_LABEL = {"local know-how": "Local know-how", "getting around": "Getting around",
+               "timing": "Timing & booking", "money": "Money",
+               "etiquette": "Etiquette & language", "packing": "Packing",
                "safety": "Safety", "other": "Other"}
 
 # same city, different spellings
@@ -73,12 +75,18 @@ def build(library: Path) -> Dict[str, Any]:
     anywhere: List[Dict[str, Any]] = []
     unplaced: List[Dict[str, Any]] = []
     unlabelled = 0
+    stale: List[Dict[str, Any]] = []
 
     for rec in records:
         L = rec.get("labels") or {}
         if not L:
             unlabelled += 1
             continue
+        if "spots" not in L:
+            # labelled by an older version - its places are stranded in the old shape
+            stale.append({"video_id": rec.get("id"), "title": L.get("title"),
+                          "author": rec.get("author"),
+                          "stranded": len(L.get("mentioned_places") or [])})
 
         place = L.get("place") or {}
         city = clean_city(place.get("city"))
@@ -156,6 +164,7 @@ def build(library: Path) -> Dict[str, Any]:
         "anywhere": group_tips(dedupe_tips(anywhere)),
         "unplaced": unplaced,
         "unlabelled": unlabelled,
+        "stale": stale,
         "bucket_label": BUCKET_LABEL,
         "topic_label": TOPIC_LABEL,
     }

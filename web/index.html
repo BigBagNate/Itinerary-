@@ -516,6 +516,19 @@ async function loadTrips(){
       + '</div></div>';
   }
 
+  if((t.stale||[]).length){
+    html += '<div class="city" style="border-color:#f2e2c4"><div class="city-h" style="background:#fff8e8">'
+      + '<h3>Needs a refresh</h3><span class="ct">'+t.stale.length+' video'
+      + (t.stale.length===1?"":"s") + ' labelled by an older version</span></div><div class="bkt">'
+      + '<div class="none" style="margin-bottom:9px">Their places are stranded in the old format, '
+      + 'so they are not showing in the lists above. Hit Label it on each to bring them in.</div>'
+      + t.stale.map(x => '<div class="pl"><span class="nm">'+esc(x.title||"Untitled")+'</span>'
+          + '<span class="kd">'+(x.stranded||0)+' place'+(x.stranded===1?"":"s")+' stranded</span>'
+          + '<button class="relabel" style="margin-left:auto" onclick="relabel(\''+x.video_id+'\',this)">Label it</button>'
+        + '</div>').join("")
+      + '</div></div>';
+  }
+
   if(t.unlabelled){
     html += '<div class="dropped" style="padding:0 4px">'+t.unlabelled
           + ' saved video'+(t.unlabelled===1?"":"s")+' not labelled yet — '
