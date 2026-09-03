@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Itinerary Workbench</title>
+<style>
+  :root{
+    --bg:#fbf9f6; --card:#fff; --ink:#1c1917; --soft:#6b6560; --line:#e8e2da;
+    --accent:#e0455f; --accent-ink:#fff; --ok:#0f7b5f; --warn:#a8410f;
+    --shadow:0 1px 2px rgba(28,25,23,.05),0 8px 24px rgba(28,25,23,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 ui-sans-serif,-apple-system,"SF Pro Text",Segoe UI,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:40px 22px 90px}
+
+  header h1{font-size:30px;letter-spacing:-.02em;margin:0 0 6px;font-weight:650}
+  header p{margin:0 0 30px;color:var(--soft);font-size:15.5px}
+
+  /* ---------- input panel ---------- */
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:20px;box-shadow:var(--shadow)}
+  .row{display:flex;gap:10px}
+  input[type=text]{flex:1;min-width:0;padding:13px 15px;border:1px solid var(--line);
+    border-radius:10px;font-size:15px;font-family:inherit;background:#fff;color:var(--ink)}
+  input[type=text]:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+  button{font-family:inherit;font-size:15px;font-weight:560;border:0;cursor:pointer;
+    border-radius:10px;padding:13px 22px;background:var(--accent);color:var(--accent-ink);
+    transition:filter .15s,transform .05s}
+  button:hover:not(:disabled){filter:brightness(1.07)}
+  button:active:not(:disabled){transform:translateY(1px)}
+  button:disabled{opacity:.5;cursor:default}
+
+  .or{display:flex;align-items:center;gap:12px;color:var(--soft);font-size:13px;
+    margin:18px 0 14px;text-transform:uppercase;letter-spacing:.08em}
+  .or:before,.or:after{content:"";height:1px;background:var(--line);flex:1}
+
+  .drop{border:2px dashed var(--line);border-radius:12px;padding:30px;text-align:center;
+    color:var(--soft);cursor:pointer;transition:.15s;background:#fdfcfa}
+  .drop:hover{border-color:#cfc6ba}
+  .drop.hot{border-color:var(--accent);background:#fff2f4;color:var(--accent)}
+  .drop b{display:block;color:var(--ink);font-size:15.5px;margin-bottom:3px;font-weight:560}
+  .drop.hot b{color:var(--accent)}
+
+  /* ---------- status ---------- */
+  #status{margin-top:16px;font-size:14.5px;display:none;padding:13px 15px;border-radius:10px;
+    white-space:pre-wrap;line-height:1.5}
+  #status.show{display:block}
+  #status.work{background:#fff8e8;color:var(--warn);border:1px solid #f2e2c4}
+  #status.bad{background:#fdf0f2;color:#a01b34;border:1px solid #f4d6dc}
+  #status.good{background:#eef8f3;color:var(--ok);border:1px solid #cfeadd}
+  .spin{display:inline-block;width:13px;height:13px;margin-right:8px;vertical-align:-2px;
+    border:2px solid currentColor;border-right-color:transparent;border-radius:50%;
+    animation:sp .7s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* ---------- library ---------- */
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--soft);
+    margin:44px 0 16px;font-weight:600}
+  .empty{color:var(--soft);text-align:center;padding:44px 20px;border:1px dashed var(--line);
+    border-radius:14px;background:#fdfcfa}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    overflow:hidden;margin-bottom:18px;box-shadow:var(--shadow)}
+  .card-top{display:flex;gap:18px;padding:18px}
+  .media{flex:0 0 190px}
+  .media video,.media img{width:100%;border-radius:10px;display:block;background:#f2ede6}
+  .strip{display:flex;gap:6px;overflow-x:auto;padding-top:6px;scrollbar-width:thin}
+  .strip img{width:56px;height:74px;object-fit:cover;border-radius:6px;flex:0 0 auto;
+    cursor:pointer;border:2px solid transparent}
+  .strip img.on{border-color:var(--accent)}
+
+  .body{flex:1;min-width:0}
+  .tag{display:inline-block;font-size:11px;font-weight:650;text-transform:uppercase;
+    letter-spacing:.06em;padding:3px 8px;border-radius:20px;background:#f3eee7;color:var(--soft)}
+  .tag.slideshow{background:#efe9fb;color:#5b3fa8}
+  .tag.video{background:#fff0d9;color:#8a5a05}
+  .who{margin:9px 0 2px;font-weight:600;font-size:15.5px}
+  .when{color:var(--soft);font-size:13.5px}
+  .cap{margin:11px 0 0;white-space:pre-wrap;word-break:break-word;font-size:14.5px}
+  .cap.dim{color:var(--soft);font-style:italic}
+
+  .stats{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px}
+  .stat{font-size:12.5px;background:#f7f3ee;border:1px solid var(--line);
+    padding:4px 10px;border-radius:7px;color:var(--soft)}
+  .stat b{color:var(--ink);font-weight:600}
+  .tags{margin-top:10px;font-size:13px;color:#7a5ad8;word-break:break-word}
+
+  /* ---------- the labelled part ---------- */
+  .brain{border-top:1px solid var(--line);padding:16px 18px;background:#fcfbf9}
+  .btitle{font-size:18px;font-weight:640;letter-spacing:-.01em;margin:0 0 8px;line-height:1.3}
+  .cats{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:11px;align-items:center}
+  .cat{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+    padding:4px 10px;border-radius:20px;background:#eee;color:#444}
+  .cat.food{background:#ffe9d6;color:#9a4a05}
+  .cat.drinks{background:#e6ecff;color:#2c3f95}
+  .cat.sights{background:#dff0e6;color:#155e3c}
+  .cat.activities{background:#e6f4fb;color:#0f5a78}
+  .cat.shopping{background:#f6e3f5;color:#7a2470}
+  .cat.stay{background:#efe9fb;color:#5b3fa8}
+  .cat.mixed,.cat.other{background:#eeeae4;color:#5f584f}
+  .cat.sub{background:transparent;border:1px solid var(--line);color:var(--soft);font-weight:600}
+  .conf{font-size:11.5px;color:var(--soft);margin-left:auto}
+  .line{margin:0 0 7px;font-size:14.5px}
+  .line .k{color:var(--soft);font-weight:600;margin-right:6px}
+  .where{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:8px;
+    padding:5px 11px;font-size:14px;font-weight:560;margin-top:3px}
+  .spots{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+  .spots-h{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--soft);
+    font-weight:650;margin-bottom:2px}
+  .spot{font-size:14px;background:#fff;border:1px solid var(--line);border-radius:9px;
+    padding:8px 11px;display:flex;gap:9px;align-items:baseline;flex-wrap:wrap}
+  .spot .nm{font-weight:620}
+  .spot .kd{font-size:11.5px;color:var(--soft);text-transform:uppercase;letter-spacing:.05em}
+  .spot .nt{color:var(--soft);font-size:13.5px;flex-basis:100%}
+  .src{font-size:11px;padding:2px 7px;border-radius:20px;font-weight:650;
+    text-transform:uppercase;letter-spacing:.04em;margin-left:auto}
+  .src.high{background:#e4f3ea;color:#15603d}
+  .src.medium{background:#fdf0dc;color:#8a5a05}
+  .src.low{background:#fbe6e9;color:#96233c}
+  .dropped{font-size:12.5px;color:var(--soft);margin-top:7px;font-style:italic}
+  details{margin-top:12px}
+  summary{cursor:pointer;font-size:13px;color:var(--soft);user-select:none}
+  summary:hover{color:var(--ink)}
+  details pre{white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.55;
+    background:#fff;border:1px solid var(--line);border-radius:9px;padding:12px;margin:9px 0 0;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;max-height:280px;overflow:auto}
+  .working{border-top:1px solid var(--line);padding:14px 18px;background:#fffdf5;
+    font-size:14px;color:var(--warn);display:flex;align-items:center;gap:10px}
+  .nolabel{border-top:1px solid var(--line);padding:14px 18px;background:#fffdf5;
+    font-size:14px;color:var(--warn);display:flex;justify-content:space-between;
+    align-items:center;gap:12px;flex-wrap:wrap}
+  .relabel{background:#1c1917;color:#fff;padding:8px 15px;font-size:13.5px;border-radius:8px}
+
+  #keywarn{display:none;margin-bottom:20px;padding:14px 16px;border-radius:12px;
+    background:#fff8e8;border:1px solid #f2e2c4;color:var(--warn);font-size:14.5px;
+    white-space:pre-wrap}
+  #keywarn.show{display:block}
+
+  /* ---------- trips ---------- */
+  .tabs{display:flex;gap:4px;margin:34px 0 20px;border-bottom:1px solid var(--line)}
+  .tab{background:none;color:var(--soft);border:0;border-bottom:2px solid transparent;
+    border-radius:0;padding:10px 15px;font-size:14px;font-weight:600;letter-spacing:.01em}
+  .tab:hover:not(:disabled){filter:none;color:var(--ink)}
+  .tab.on{color:var(--ink);border-bottom-color:var(--accent)}
+  .tab .n{font-size:12px;color:var(--soft);font-weight:600;margin-left:5px}
+
+  .city{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    margin-bottom:20px;overflow:hidden;box-shadow:var(--shadow)}
+  .city-h{padding:17px 20px;border-bottom:1px solid var(--line);
+    display:flex;align-items:baseline;gap:11px;flex-wrap:wrap;background:#fcfbf9}
+  .city-h h3{margin:0;font-size:21px;font-weight:660;letter-spacing:-.015em}
+  .city-h .co{color:var(--soft);font-size:14.5px}
+  .city-h .ct{margin-left:auto;font-size:12.5px;color:var(--soft)}
+
+  .bkt{padding:15px 20px;border-bottom:1px solid #f2ede6}
+  .bkt:last-child{border-bottom:0}
+  .bkt-h{font-size:12px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;
+    margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .bkt-h .dot{width:8px;height:8px;border-radius:50%}
+  .b-sights .dot{background:#2f7d55} .b-sights .bkt-h{color:#2f7d55}
+  .b-eats .dot{background:#b5651d}   .b-eats .bkt-h{color:#b5651d}
+  .b-activities .dot{background:#1d6f92} .b-activities .bkt-h{color:#1d6f92}
+  .b-drinks .dot{background:#3d51a8} .b-drinks .bkt-h{color:#3d51a8}
+  .b-shopping .dot{background:#8f2f86} .b-shopping .bkt-h{color:#8f2f86}
+  .b-stays .dot{background:#6b4bbd}  .b-stays .bkt-h{color:#6b4bbd}
+  .bkt-h .c{margin-left:auto;color:var(--soft);font-weight:600;letter-spacing:0;
+    text-transform:none;font-size:12.5px}
+
+  .pl{display:flex;gap:9px;align-items:baseline;padding:7px 0;flex-wrap:wrap;
+    border-top:1px dashed #f0eae2}
+  .pl:first-of-type{border-top:0}
+  .pl .nm{font-weight:600;font-size:14.5px}
+  .pl .kd{font-size:11.5px;color:var(--soft);text-transform:uppercase;letter-spacing:.04em}
+  .pl .nt{flex-basis:100%;color:var(--soft);font-size:13.5px;margin-top:1px}
+  .twice{font-size:11px;font-weight:700;background:#fdf0dc;color:#8a5a05;
+    padding:2px 8px;border-radius:20px}
+  .none{color:var(--soft);font-size:13.5px;font-style:italic}
+
+  .tips-h{font-size:12px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;
+    color:var(--soft);margin-bottom:9px}
+  .topic{margin-bottom:12px}
+  .topic b{display:block;font-size:13px;margin-bottom:4px;font-weight:640}
+  .topic li{font-size:14px;margin-bottom:3px}
+  .topic ul{margin:0;padding-left:19px}
+
+  .foot{display:flex;justify-content:space-between;align-items:center;gap:12px;
+    padding:11px 18px;border-top:1px solid var(--line);background:#fdfcfa;flex-wrap:wrap}
+  .files{font-size:12.5px;color:var(--soft)}
+  .foot a{color:var(--soft);font-size:12.5px;text-decoration:none;border-bottom:1px solid var(--line)}
+  .foot a:hover{color:var(--ink)}
+  .del{background:none;color:var(--soft);padding:5px 10px;font-size:12.5px;font-weight:500;
+    border:1px solid var(--line);border-radius:7px}
+  .del:hover{color:#a01b34;border-color:#f0c9d1;background:#fdf0f2}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Itinerary Workbench</h1>
+    <p>Paste a TikTok link, or drop a video in. Everything inside it gets pulled out and saved here.</p>
+  </header>
+
+  <div id="keywarn"></div>
+
+  <div class="panel">
+    <form class="row" id="linkForm">
+      <input type="text" id="url" placeholder="Paste a TikTok link here" autocomplete="off" spellcheck="false">
+      <button type="submit" id="go">Get it</button>
+    </form>
+
+    <div class="or">or</div>
+
+    <div class="drop" id="drop">
+      <b>Drop a video or photo here</b>
+      <span>or click to pick one from your computer</span>
+      <input type="file" id="file" hidden accept="video/*,image/*,audio/*">
+    </div>
+
+    <div id="status"></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" id="tab-trips" onclick="showTab('trips')">Trips</button>
+    <button class="tab" id="tab-all" onclick="showTab('all')">Everything you've saved<span class="n" id="allcount"></span></button>
+  </div>
+
+  <div id="pane-trips"></div>
+  <div id="pane-all" hidden><div id="list"></div></div>
+
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const listEl = $("#list"), statusEl = $("#status");
+let busy = false;
+
+function say(msg, tone){
+  statusEl.className = "show " + tone;
+  statusEl.innerHTML = tone === "work" ? '<span class="spin"></span>' + esc(msg) : esc(msg);
+}
+function clearSay(){ statusEl.className = ""; }
+function esc(s){ const d=document.createElement("div"); d.textContent = s==null?"":String(s); return d.innerHTML; }
+function num(n){ return n==null ? null : Number(n).toLocaleString(); }
+function secs(n){
+  if(n==null) return null;
+  n = Math.round(n); const m = Math.floor(n/60), s = n%60;
+  return m ? m+"m "+String(s).padStart(2,"0")+"s" : s+"s";
+}
+
+async function send(body){
+  if(busy) return;
+  busy = true; $("#go").disabled = true;
+  say("Downloading it — hang on.", "work");
+  try{
+    const r = await fetch("/api/add", { method:"POST", body });
+    const data = await r.json().catch(()=>({detail:"The server gave back something unreadable."}));
+    if(!r.ok) throw new Error(data.detail || "It didn't work.");
+    const n = (data.media||[]).length;
+    say("Downloaded — " + n + " file" + (n===1?"":"s") + " saved. Now listening to it and reading the screen.", "good");
+    $("#url").value = "";
+    setTimeout(clearSay, 4000);
+    await load();
+  }catch(e){
+    say(e.message, "bad");
+  }finally{
+    busy = false; $("#go").disabled = false;
+  }
+}
+
+$("#linkForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const u = $("#url").value.trim();
+  if(!u) return say("Paste a link in the box first.", "bad");
+  const f = new FormData(); f.append("url", u); send(f);
+});
+
+const drop = $("#drop"), fileInput = $("#file");
+drop.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => {
+  if(fileInput.files[0]){
+    const f = new FormData(); f.append("file", fileInput.files[0]); send(f);
+    fileInput.value = "";
+  }
+});
+["dragenter","dragover"].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("hot"); }));
+["dragleave","drop"].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("hot"); }));
+drop.addEventListener("drop", e => {
+  const file = e.dataTransfer.files[0];
+  if(file){ const f = new FormData(); f.append("file", file); send(f); return; }
+  const text = (e.dataTransfer.getData("text") || "").trim();
+  if(text.startsWith("http")){ const f = new FormData(); f.append("url", text); send(f); }
+});
+window.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("drop", e => e.preventDefault());
+
+function card(it){
+  const media = it.media || [];
+  const vids = media.filter(m => m.kind === "video");
+  const imgs = media.filter(m => m.kind === "image");
+  const auds = media.filter(m => m.kind === "audio");
+
+  let stage = "";
+  if(vids.length){
+    stage = '<video src="'+esc(vids[0].url)+'" controls preload="metadata"></video>';
+  }else if(imgs.length){
+    stage = '<img id="big-'+it.id+'" src="'+esc(imgs[0].url)+'" alt="">';
+    if(imgs.length > 1){
+      stage += '<div class="strip">' + imgs.map((m,i) =>
+        '<img class="'+(i===0?"on":"")+'" src="'+esc(m.url)+'" alt="" '+
+        'onclick="pick(\''+it.id+'\',\''+esc(m.url)+'\',this)">').join("") + '</div>';
+    }
+  }
+
+  const stats = [];
+  if(it.views != null)    stats.push(["Views", num(it.views)]);
+  if(it.likes != null)    stats.push(["Likes", num(it.likes)]);
+  if(it.comments != null) stats.push(["Comments", num(it.comments)]);
+  if(it.duration != null) stats.push(["Length", secs(it.duration)]);
+  if(imgs.length > 1)     stats.push(["Photos", imgs.length]);
+  if(auds.length)         stats.push(["Sound", "saved"]);
+  if(it.music)            stats.push(["Track", it.music]);
+
+  const label = it.kind === "slideshow" ? "Photo slideshow" : "Video";
+  const cap = (it.caption || "").trim();
+
+  const L = it.labels;
+  let brainHtml = "";
+  if(L){
+    const others = (L.other_categories||[]).filter(c => c && c !== L.category);
+    const pl = L.place || {};
+    const bits = [pl.area, pl.city, pl.country].filter(v => v && String(v).toLowerCase() !== "unknown");
+    const where = bits.length ? bits.join(", ") : null;
+    const spots = (L.spots||[]).filter(x => x && x.name);
+
+    brainHtml = '<div class="brain">'
+      + (L.title ? '<h3 class="btitle">'+esc(L.title)+'</h3>' : "")
+      + '<div class="cats">'
+        + '<span class="cat '+esc(L.category||"other")+'">'+esc(L.category||"other")+'</span>'
+        + others.map(c => '<span class="cat sub">'+esc(c)+'</span>').join("")
+        + (L.confidence ? '<span class="conf">confidence: '+esc(L.confidence)+'</span>' : "")
+      + '</div>'
+      + (L.purpose    ? '<p class="line"><span class="k">What it is</span>'+esc(L.purpose)+'</p>' : "")
+      + (L.why_saved  ? '<p class="line"><span class="k">Why keep it</span>'+esc(L.why_saved)+'</p>' : "")
+      + (L.category_reason ? '<p class="line"><span class="k">Why this label</span>'+esc(L.category_reason)+'</p>' : "")
+      + '<p class="line"><span class="k">Where</span>'
+        + (where ? '<span class="where">'+esc(where)+'</span>' : '<span style="color:var(--soft)">not stated in the video</span>')
+        + '</p>'
+      + (spots.length ? '<div class="spots"><div class="spots-h">Places named in this video</div>'
+          + spots.map(x => {
+              const sure = (x.sure||"medium").toLowerCase();
+              const src = x.source === "on-screen" ? "written on screen"
+                        : x.source === "caption" ? "from the caption" : "heard out loud";
+              return '<div class="spot">'
+                + '<span class="nm">'+esc(x.name)+'</span>'
+                + (x.kind ? '<span class="kd">'+esc(x.kind)+'</span>' : "")
+                + '<span class="src '+esc(sure)+'" title="how sure we are of the spelling">'+esc(src)+'</span>'
+                + (x.note ? '<span class="nt">'+esc(x.note)+'</span>' : "")
+              + '</div>';
+            }).join("")
+          + '</div>' : '<div class="dropped">No specific places were named in this one.</div>')
+      + (L.spots_dropped ? '<div class="dropped">'+L.spots_dropped+' unclear name'+(L.spots_dropped===1?"":"s")+' left out rather than guessed at.</div>' : "")
+      + ((L.transcript||"").trim() ? '<details><summary>What was said out loud</summary><pre>'+esc(L.transcript)+'</pre></details>' : "")
+      + ((L.on_screen||"").trim()  ? '<details><summary>Text shown on screen</summary><pre>'+esc(L.on_screen)+'</pre></details>' : "")
+    + '</div>';
+  }else if(it.job && it.job.state === "working"){
+    brainHtml = '<div class="working"><span class="spin"></span><span>'
+      + esc(it.job.step || "Working on it") + '...</span></div>';
+  }else{
+    const why = (it.job && it.job.error) || it.label_error || "Not labelled yet.";
+    brainHtml = '<div class="nolabel"><span>'
+      + esc(why)
+      + '</span><button class="relabel" onclick="relabel(\''+it.id+'\',this)">Label it</button></div>';
+  }
+
+  return '<div class="card">'
+    + '<div class="card-top">'
+      + (stage ? '<div class="media">'+stage+'</div>' : "")
+      + '<div class="body">'
+        + '<span class="tag '+esc(it.kind)+'">'+label+'</span>'
+        + '<div class="who">'+esc(it.author || "Unknown")+(it.handle ? ' <span class="when">@'+esc(it.handle)+'</span>' : "")+'</div>'
+        + '<div class="when">'+esc(it.date || "")+(it.date && it.added_at ? " · " : "")+(it.added_at ? "saved "+esc(it.added_at) : "")+'</div>'
+        + (cap ? '<p class="cap">'+esc(cap)+'</p>'
+               : '<p class="cap dim">No caption came with this one — the details are in what\'s said out loud and shown on screen.</p>')
+        + (stats.length ? '<div class="stats">'+stats.map(s=>'<span class="stat">'+esc(s[0])+' <b>'+esc(s[1])+'</b></span>').join("")+'</div>' : "")
+        + ((it.hashtags||[]).length ? '<div class="tags">'+it.hashtags.map(h=>"#"+esc(h)).join(" ")+'</div>' : "")
+      + '</div>'
+    + '</div>'
+    + brainHtml
+    + '<div class="foot">'
+      + '<span class="files">'+media.length+' file'+(media.length===1?"":"s")+' on your computer</span>'
+      + '<span>'
+        + (it.source_url ? '<a href="'+esc(it.source_url)+'" target="_blank" rel="noreferrer">open original</a> &nbsp; ' : "")
+        + '<button class="del" onclick="del(\''+it.id+'\')">Remove</button>'
+      + '</span>'
+    + '</div>'
+  + '</div>';
+}
+
+function pick(id, url, el){
+  document.getElementById("big-"+id).src = url;
+  el.parentElement.querySelectorAll("img").forEach(i => i.classList.remove("on"));
+  el.classList.add("on");
+}
+
+async function del(id){
+  if(!confirm("Remove this and delete its files?")) return;
+  await fetch("/api/items/"+id, { method:"DELETE" });
+  load();
+}
+
+async function relabel(id, btn){
+  btn.disabled = true; btn.textContent = "Working...";
+  try{
+    const r = await fetch("/api/analyze/"+id, { method:"POST" });
+    const d = await r.json().catch(()=>({detail:"Unreadable answer."}));
+    if(!r.ok) throw new Error(d.detail || "Couldn't label it.");
+    await load();
+  }catch(e){
+    say(e.message, "bad");
+    btn.disabled = false; btn.textContent = "Label it";
+  }
+}
+
+async function checkKey(){
+  try{
+    const k = await (await fetch("/api/key-status")).json();
+    const w = document.getElementById("keywarn");
+    if(!k.ok){ w.textContent = k.message; w.className = "show"; }
+    else{ w.className = ""; }
+  }catch(e){}
+}
+checkKey();
+
+let tab = "trips";
+
+function showTab(which){
+  tab = which;
+  document.getElementById("pane-trips").hidden = which !== "trips";
+  document.getElementById("pane-all").hidden  = which !== "all";
+  document.getElementById("tab-trips").className = "tab" + (which==="trips" ? " on" : "");
+  document.getElementById("tab-all").className   = "tab" + (which==="all" ? " on" : "");
+}
+
+function placeRow(p){
+  const notes = (p.notes||[]).join(" · ");
+  const twice = (p.seen_in||[]).length > 1
+    ? '<span class="twice">in '+p.seen_in.length+' videos</span>' : "";
+  return '<div class="pl">'
+    + '<span class="nm">'+esc(p.name)+'</span>'
+    + (p.kind ? '<span class="kd">'+esc(p.kind)+'</span>' : "")
+    + twice
+    + (notes ? '<span class="nt">'+esc(notes)+'</span>' : "")
+  + '</div>';
+}
+
+function topicBlock(g){
+  return '<div class="topic"><b>'+esc(g.label)+'</b><ul>'
+    + g.tips.map(t => '<li>'+esc(t.tip)+'</li>').join("")
+  + '</ul></div>';
+}
+
+function cityCard(c, labels){
+  const buckets = Object.keys(c.buckets).map(b => {
+    const items = c.buckets[b];
+    return '<div class="bkt b-'+esc(b)+'">'
+      + '<div class="bkt-h"><span class="dot"></span>'+esc(labels[b])
+        + '<span class="c">'+items.length+'</span></div>'
+      + (items.length ? items.map(placeRow).join("")
+                      : '<div class="none">Nothing yet from your videos.</div>')
+    + '</div>';
+  }).join("");
+
+  const tips = (c.tips||[]).length
+    ? '<div class="bkt"><div class="tips-h">Good to know in '+esc(c.city)+'</div>'
+        + c.tips.map(topicBlock).join("") + '</div>'
+    : "";
+
+  return '<div class="city">'
+    + '<div class="city-h"><h3>'+esc(c.city)+'</h3>'
+      + (c.country ? '<span class="co">'+esc(c.country)+'</span>' : "")
+      + '<span class="ct">'+c.place_count+' place'+(c.place_count===1?"":"s")
+        +' · from '+c.videos.length+' video'+(c.videos.length===1?"":"s")+'</span></div>'
+    + buckets + tips
+  + '</div>';
+}
+
+async function loadTrips(){
+  const t = await (await fetch("/api/trips")).json();
+  let html = "";
+
+  if(!t.cities.length){
+    html += '<div class="empty">No cities yet. Save a few videos that mention where they are, '
+          + 'and they\'ll group themselves here.</div>';
+  }else{
+    html += t.cities.map(c => cityCard(c, t.bucket_label)).join("");
+  }
+
+  if((t.anywhere||[]).length){
+    html += '<div class="city"><div class="city-h"><h3>Good to know anywhere</h3>'
+      + '<span class="ct">applies to any trip</span></div>'
+      + '<div class="bkt">' + t.anywhere.map(topicBlock).join("") + '</div></div>';
+  }
+
+  if((t.unplaced||[]).length){
+    html += '<div class="city"><div class="city-h"><h3>No city yet</h3>'
+      + '<span class="ct">'+t.unplaced.length+' video'+(t.unplaced.length===1?"":"s")
+      + " didn't say where they were</span></div><div class=\"bkt\">"
+      + t.unplaced.map(u => '<div class="pl"><span class="nm">'+esc(u.title||"Untitled")
+          + '</span><span class="kd">'+esc(u.category||"")+'</span></div>').join("")
+      + '</div></div>';
+  }
+
+  if(t.unlabelled){
+    html += '<div class="dropped" style="padding:0 4px">'+t.unlabelled
+          + ' saved video'+(t.unlabelled===1?"":"s")+' not labelled yet — '
+          + 'open "Everything you\'ve saved" and hit Label it.</div>';
+  }
+
+  document.getElementById("pane-trips").innerHTML = html;
+}
+
+let poller = null;
+
+async function load(){
+  const items = await (await fetch("/api/items")).json();
+  listEl.innerHTML = items.length
+    ? items.map(card).join("")
+    : '<div class="empty">Nothing saved yet. Paste a link up top to start.</div>';
+
+  document.getElementById("allcount").textContent = items.length;
+  await loadTrips();
+
+  const stillWorking = items.some(i => i.job && i.job.state === "working");
+  if(stillWorking && !poller){
+    poller = setInterval(load, 2500);
+  }else if(!stillWorking && poller){
+    clearInterval(poller); poller = null;
+    if(statusEl.className.indexOf("good") >= 0) setTimeout(clearSay, 2500);
+  }
+}
+load();
+</script>
+</body>
+</html>
