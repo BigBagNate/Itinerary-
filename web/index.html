@@ -117,9 +117,7 @@
   .spot .nt{color:var(--soft);font-size:13.5px;flex-basis:100%}
   .src{font-size:11px;padding:2px 7px;border-radius:20px;font-weight:650;
     text-transform:uppercase;letter-spacing:.04em;margin-left:auto}
-  .src.high{background:#e4f3ea;color:#15603d}
-  .src.medium{background:#fdf0dc;color:#8a5a05}
-  .src.low{background:#fbe6e9;color:#96233c}
+  .src.low{background:#fbe6e9;color:#96233c;font-weight:600}
   .dropped{font-size:12.5px;color:var(--soft);margin-top:7px;font-style:italic}
   details{margin-top:12px}
   summary{cursor:pointer;font-size:13px;color:var(--soft);user-select:none}
@@ -353,13 +351,11 @@ function card(it){
         + '</p>'
       + (spots.length ? '<div class="spots"><div class="spots-h">Places named in this video</div>'
           + spots.map(x => {
-              const sure = (x.sure||"medium").toLowerCase();
-              const src = x.source === "on-screen" ? "written on screen"
-                        : x.source === "caption" ? "from the caption" : "heard out loud";
+              const unsure = (x.sure||"medium").toLowerCase() === "low";
               return '<div class="spot">'
                 + '<span class="nm">'+esc(x.name)+'</span>'
                 + (x.kind ? '<span class="kd">'+esc(x.kind)+'</span>' : "")
-                + '<span class="src '+esc(sure)+'" title="how sure we are of the spelling">'+esc(src)+'</span>'
+                + (unsure ? '<span class="src low" title="the name was hard to make out — check the spelling">check spelling</span>' : "")
                 + (x.note ? '<span class="nt">'+esc(x.note)+'</span>' : "")
               + '</div>';
             }).join("")
@@ -448,13 +444,15 @@ function showTab(which){
 }
 
 function placeRow(p){
-  const notes = (p.notes||[]).join(" · ");
+  const notes = (p.notes||[]).filter(Boolean).join(" · ");
   const twice = (p.seen_in||[]).length > 1
     ? '<span class="twice">in '+p.seen_in.length+' videos</span>' : "";
+  const unsure = (p.sure||"medium").toLowerCase() === "low"
+    ? '<span class="src low" title="the name was hard to make out — check the spelling">check spelling</span>' : "";
   return '<div class="pl">'
     + '<span class="nm">'+esc(p.name)+'</span>'
     + (p.kind ? '<span class="kd">'+esc(p.kind)+'</span>' : "")
-    + twice
+    + twice + unsure
     + (notes ? '<span class="nt">'+esc(notes)+'</span>' : "")
   + '</div>';
 }

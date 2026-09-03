@@ -133,13 +133,17 @@ def build(library: Path) -> Dict[str, Any]:
                 if rank.get(sp.get("sure"), 0) > rank.get(hit.get("sure"), 0):
                     hit["name"], hit["sure"], hit["source"] = (
                         sp["name"], sp.get("sure"), sp.get("source"))
-                if sp.get("note") and sp["note"] not in hit["notes"]:
-                    hit["notes"].append(sp["note"])
+                note = brain.clean_note(sp.get("note") or "", sp.get("name", ""))
+                if note and not any(same_place(note, n) for n in hit["notes"]):
+                    hit["notes"].append(note)
+                hit["notes"].sort(key=len, reverse=True)   # fullest description first
+                del hit["notes"][1:]                       # one is enough
             else:
                 bucket.append({
                     "name": sp["name"], "kind": sp.get("kind", ""),
                     "sure": sp.get("sure", "medium"), "source": sp.get("source", ""),
-                    "notes": [sp["note"]] if sp.get("note") else [],
+                    "notes": [n for n in [brain.clean_note(sp.get("note") or "",
+                                                            sp.get("name", ""))] if n],
                     "seen_in": [src],
                 })
 

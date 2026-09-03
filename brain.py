@@ -392,7 +392,11 @@ Answer with ONE JSON object and nothing else:
       "name": "the venue's actual name, spelled as well as the evidence allows",
       "kind": "restaurant / bar / cafe / museum / park / shop / hotel / landmark / other",
       "bucket": "exactly one of: sights, eats, activities, drinks, shopping, stays",
-      "note": "a few words on what was said about it",
+      "note": "a few words describing the place itself - what it is known for, what to
+               order, where it is. Write it for a traveller reading a guidebook.
+               NEVER describe where you found the information: no 'mentioned as',
+               no 'shown on screen', no 'heard as', no 'the video says'. If you have
+               nothing to say about the place itself, leave this empty.",
       "source": "on-screen if the name was written on screen, spoken if only said out loud, caption if only in the caption",
       "sure": "high if the name was written on screen or spelled clearly, medium if heard clearly, low if you are guessing at the spelling"
     }}
@@ -445,6 +449,10 @@ Pick the tip's topic from this list. Read the definitions - do not guess:
 - safety          : scams, pickpockets, areas to avoid, health
 - other           : LAST RESORT ONLY. If a tip fits any topic above even loosely, use
                     that one instead. Do not use "other" just because it is convenient.
+
+Write every "note" as if it were printed in a guidebook. "Family-run trattoria near
+the Pantheon, known for carbonara" is right. "Shown on screen as RISTORANTE AL 34" is
+wrong - that describes your own reading process, not the restaurant.
 
 Rules for "spots" - these matter most:
 - A spot must be a NAMED place someone could look up. "Armando al Pantheon" is a spot.
@@ -555,6 +563,56 @@ def tidy_tips(raw: Any) -> List[Dict[str, str]]:
     return out
 
 
+PLUMBING = re.compile(
+    r"^\s*(?:it\s+is\s+|its\s+)?"
+    r"(?:also\s+|only\s+|just\s+)?"
+    r"(?:shown|seen|written|displayed|mentioned|named|referenced|listed|heard|said|"
+    r"stated|appears?|appeared|noted|described|spelled|spelt)\b"
+    r"[^,;.]*?"
+    r"(?:\bon\s+screen\b|\bon-screen\b|\bin\s+the\s+(?:video|caption|transcript)\b|"
+    r"\bas\b|\bby\s+the\s+(?:speaker|creator)\b)?"
+    r"\s*(?:as|:)?\s*",
+    re.I)
+
+SOURCE_TALK = re.compile(
+    r"\b(?:on[- ]screen|in the video|the video says?|the caption|transcript|"
+    r"name heard as|heard as|shown as|spelled as|per the video)\b", re.I)
+
+
+# a note that only says "we don't know" is worse than no note at all
+FILLER = re.compile(
+    r"\b(?:not\s+(?:specified|stated|given|mentioned|available|provided|clear|known)"
+    r"|no\s+(?:details?|info(?:rmation)?|description)"
+    r"|details?\s+unknown|unspecified|unknown|n/?a)\b", re.I)
+
+
+def is_filler(n: str) -> bool:
+    """True when what's left says nothing about the place."""
+    if FILLER.search(n):
+        # keep it only if there's real content besides the hedge
+        rest = FILLER.sub("", n).strip(" .,;:-")
+        return len(rest) < 12
+    return n.strip(" .,;:-").lower() in {"none", "n/a", "na", "-", "unknown"}
+
+
+def clean_note(note: str, name: str) -> str:
+    """Strip the machine talking about itself. A note should describe the place."""
+    n = (note or "").strip()
+    if not n:
+        return ""
+    n = PLUMBING.sub("", n).strip(" ,;:-")
+    # drop whole clauses that are only about where we read it
+    keep = [c.strip() for c in re.split(r"[;,]\s*", n)
+            if c.strip() and not SOURCE_TALK.search(c)]
+    n = ", ".join(keep).strip(" ,;:-")
+    # "LA TERRA" restated as its own description says nothing
+    if not n or n.lower().strip() == name.lower().strip():
+        return ""
+    if len(n) < 4 or is_filler(n):
+        return ""
+    return n[0].upper() + n[1:]
+
+
 def tidy_spots(raw: Any) -> List[Dict[str, str]]:
     """Drop generic words, drop fragments, merge near-duplicates, fix SHOUTING."""
     import difflib
@@ -593,7 +651,7 @@ def tidy_spots(raw: Any) -> List[Dict[str, str]]:
             "name": name,
             "bucket": bucket_for(item),
             "kind": str(item.get("kind") or "").strip().lower(),
-            "note": str(item.get("note") or "").strip(),
+            "note": clean_note(str(item.get("note") or ""), name),
             "source": str(item.get("source") or "").strip().lower(),
             "sure": str(item.get("sure") or "medium").strip().lower(),
         }
