@@ -376,9 +376,32 @@ def whisper():
     return _WHISPER
 
 
-def transcribe_locally(audio: Path) -> str:
+def transcribe_locally(audio: Path):
+    """Returns the words, plus when each line was said so we can jump to it."""
     segs, _info = whisper().transcribe(str(audio), beam_size=5, vad_filter=True)
-    return " ".join(s.text.strip() for s in segs).strip()
+    lines = [{"at": float(x.start), "text": x.text.strip()} for x in segs]
+    return " ".join(l["text"] for l in lines).strip(), lines
+
+
+def when_mentioned(name: str, lines: List[Dict[str, Any]]) -> Optional[float]:
+    """The moment this place is first named out loud, so 'watch' starts there."""
+    if not lines or not name:
+        return None
+    words = [w for w in re.findall(r"[A-Za-z']{4,}", name)
+             if w.lower() not in {"the", "restaurant", "cafe", "bar", "hotel", "house"}]
+    if not words:
+        return None
+    key = max(words, key=len).lower()
+    import difflib
+    for line in lines:
+        low = line["text"].lower()
+        if key in low:
+            return max(0.0, line["at"] - 2)          # a moment of run-up
+        # speech-to-text mangles names; accept a near miss
+        for spoken in re.findall(r"[a-z']{4,}", low):
+            if difflib.SequenceMatcher(None, key, spoken).ratio() > 0.82:
+                return max(0.0, line["at"] - 2)
+    return None
 
 
 LISTEN_PROMPT = """You are given a short social video post (audio and/or still frames from it).
@@ -415,7 +438,7 @@ with exactly: (no on-screen text)"""
 def listen_and_read(d: Path, prov: Dict[str, Any]) -> Dict[str, Any]:
     """Ears run here on the Mac. Eyes run on NVIDIA. Either can fail without
     sinking the whole thing - we label with whatever evidence we got."""
-    transcript, on_screen, notes, used = "", "", [], {}
+    transcript, on_screen, notes, used, lines = "", "", [], {}, []
 
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
@@ -424,7 +447,7 @@ def listen_and_read(d: Path, prov: Dict[str, Any]) -> Dict[str, Any]:
 
         if audio:
             try:
-                transcript = transcribe_locally(audio)
+                transcript, lines = transcribe_locally(audio)
             except Exception as e:  # noqa: BLE001
                 notes.append(f"Could not listen to the audio: {e}")
         else:
@@ -453,7 +476,7 @@ def listen_and_read(d: Path, prov: Dict[str, Any]) -> Dict[str, Any]:
             if last_err:
                 notes.append(f"Could not read the screen text: {last_err}")
 
-    return {"transcript": transcript, "on_screen": on_screen,
+    return {"transcript": transcript, "on_screen": on_screen, "lines": lines,
             "audio_used": bool(transcript), "frames_used": len(frames),
             "notes": notes, "used": used}
 
@@ -826,6 +849,11 @@ def _analyze_with(item_dir: Path, meta: Dict[str, Any], prov: Dict[str, Any],
     result["on_screen"] = heard.get("on_screen", "")
     result["heard_audio"] = heard.get("audio_used", False)
     result["saw_frames"] = heard.get("frames_used", 0)
+    for sp in result["spots"]:
+        at = when_mentioned(sp.get("name", ""), heard.get("lines") or [])
+        if at is not None:
+            sp["at"] = round(at, 1)
+
     place = result.get("place") or {}
     if result["spots"]:
         if on_step:
@@ -833,7 +861,7 @@ def _analyze_with(item_dir: Path, meta: Dict[str, Any], prov: Dict[str, Any],
         try:
             result["spots"] = mapcheck.verify_spots(
                 result["spots"], str(place.get("city") or ""),
-                str(place.get("country") or ""))
+                str(place.get("country") or ""), str(place.get("area") or ""))
         except Exception as e:  # noqa: BLE001
             result.setdefault("notes", []).append(f"Map check skipped: {e}")
     result["on_map_count"] = sum(1 for x in result["spots"] if x.get("on_map"))

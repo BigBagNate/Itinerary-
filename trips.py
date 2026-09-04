@@ -94,8 +94,12 @@ def build(library: Path) -> Dict[str, Any]:
         if country.lower() in JUNK_CITY:
             country = ""
 
+        vid = next((m["url"] for m in (rec.get("media") or [])
+                    if m.get("kind") == "video"), "")
         src = {"video_id": rec.get("id"), "author": rec.get("author"),
-               "title": L.get("title"), "url": rec.get("source_url")}
+               "title": L.get("title"), "url": rec.get("source_url"),
+               "file": vid, "thumb": next((m["url"] for m in (rec.get("media") or [])
+                                           if m.get("kind") == "image"), "")}
 
         # tips that work anywhere get lifted out once
         for t in L.get("tips") or []:
@@ -125,10 +129,13 @@ def build(library: Path) -> Dict[str, Any]:
             if b not in BUCKETS:                  # older entries, or the model forgot
                 b = brain.bucket_for(sp)
             bucket = c["buckets"][b]
+            here = dict(src)
+            if sp.get("at") is not None:
+                here["at"] = sp["at"]
             hit = next((x for x in bucket if same_place(x["name"], sp["name"])), None)
             if hit:
                 # same place from a second video - that's a stronger recommendation
-                hit["seen_in"].append(src)
+                hit["seen_in"].append(here)
                 rank = {"high": 3, "medium": 2, "low": 1}
                 if sp.get("on_map") and not hit.get("on_map"):
                     hit.update({k: sp.get(k, "") for k in
@@ -150,7 +157,7 @@ def build(library: Path) -> Dict[str, Any]:
                     "map_url": sp.get("map_url", ""), "area": sp.get("area", ""),
                     "notes": [n for n in [brain.clean_note(sp.get("note") or "",
                                                             sp.get("name", ""))] if n],
-                    "seen_in": [src],
+                    "seen_in": [here],
                 })
 
     # tidy each city for display

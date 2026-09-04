@@ -124,6 +124,17 @@
   .nomap{font-size:11px;font-weight:650;background:#f3eee7;color:#7a6f62;
     padding:2px 8px;border-radius:20px}
   .pin{color:#2f7d55;font-weight:700;margin-right:1px}
+  .seen{flex-basis:100%;margin-top:5px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  .seen .lbl{font-size:12px;color:var(--soft)}
+  .watch{font-size:12.5px;background:#fff;border:1px solid var(--line);border-radius:7px;
+    padding:4px 10px;cursor:pointer;color:var(--ink);font-weight:560;font-family:inherit}
+  .watch:hover{background:#f7f3ee;filter:none}
+  .watch .t{color:var(--soft);font-weight:500;margin-left:5px}
+  .player{flex-basis:100%;margin-top:9px;display:none}
+  .player.open{display:block}
+  .player video{width:100%;max-width:330px;border-radius:10px;background:#000}
+  .player .cap{font-size:12.5px;color:var(--soft);margin-top:5px}
+  .player .cap a{color:#1d6f92}
   .dropped{font-size:12.5px;color:var(--soft);margin-top:7px;font-style:italic}
   details{margin-top:12px}
   summary{cursor:pointer;font-size:13px;color:var(--soft);user-select:none}
@@ -470,7 +481,48 @@ function placeRow(p){
     + twice + flag
     + (notes ? '<span class="nt">'+esc(notes)+'</span>' : "")
     + addr
+    + watchRow(p)
   + '</div>';
+}
+
+function mmss(s){
+  s = Math.max(0, Math.round(s||0));
+  return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
+}
+
+// every place can be traced back to the video that recommended it
+function watchRow(p){
+  const vids = (p.seen_in||[]).filter(v => v.file || v.url);
+  if(!vids.length) return "";
+  const id = "pl-" + Math.random().toString(36).slice(2,9);
+  const buttons = vids.map((v,i) =>
+    v.file
+      ? '<button class="watch" onclick="playAt(\''+id+'\',\''+esc(v.file)+'\','+(v.at||0)+',this)">'
+          + '▶ ' + esc((v.author ? "@"+v.author : "watch"))
+          + (v.at ? '<span class="t">from '+mmss(v.at)+'</span>' : "")
+        + '</button>'
+      : '<a class="watch" href="'+esc(v.url)+'" target="_blank" rel="noreferrer">▶ '
+          + esc(v.author ? "@"+v.author : "open on TikTok") + '</a>'
+  ).join("");
+  const orig = vids.find(v => v.url);
+  return '<span class="seen"><span class="lbl">'
+      + (vids.length>1 ? 'recommended in '+vids.length+' videos:' : 'from:') + '</span>'
+      + buttons
+    + '</span>'
+    + '<div class="player" id="'+id+'"><video controls preload="none"></video>'
+      + (orig ? '<div class="cap"><a href="'+esc(orig.url)+'" target="_blank" rel="noreferrer">open the original on TikTok</a></div>' : "")
+    + '</div>';
+}
+
+function playAt(boxId, file, at, btn){
+  const box = document.getElementById(boxId);
+  const v = box.querySelector("video");
+  const already = box.classList.contains("open") && v.dataset.file === file;
+  if(already){ v.pause(); box.classList.remove("open"); return; }
+  if(v.dataset.file !== file){ v.src = file; v.dataset.file = file; }
+  box.classList.add("open");
+  const go = () => { try{ v.currentTime = at || 0; }catch(e){} v.play().catch(()=>{}); };
+  if(v.readyState >= 1) go(); else v.addEventListener("loadedmetadata", go, {once:true});
 }
 
 function topicBlock(g){

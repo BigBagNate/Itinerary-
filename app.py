@@ -324,7 +324,8 @@ def recheck_map():
             continue
         place = L.get("place") or {}
         L["spots"] = mapcheck.verify_spots(L["spots"], str(place.get("city") or ""),
-                                           str(place.get("country") or ""))
+                                           str(place.get("country") or ""),
+                                           str(place.get("area") or ""))
         L["on_map_count"] = sum(1 for x in L["spots"] if x.get("on_map"))
         checked += len(L["spots"])
         found += L["on_map_count"]

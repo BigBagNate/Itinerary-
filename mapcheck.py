@@ -135,20 +135,58 @@ def _name_matches(asked: str, found: str) -> bool:
     return bool(aw and fw and len(aw & fw) / len(aw) >= 0.6)
 
 
-def look_up(name: str, city: str = "", country: str = "") -> Optional[Dict[str, Any]]:
+def _area_words(text: str) -> set:
+    """Neighbourhood words worth matching on, minus the filler."""
+    stop = {"area", "district", "neighbourhood", "neighborhood", "near", "the", "and",
+            "quarter", "side", "street", "st", "road", "rd", "via", "avenue", "ave"}
+    return {w for w in re.findall(r"[a-z']{3,}", (text or "").lower()) if w not in stop}
+
+
+def _area_score(hit: Dict[str, Any], area: str) -> int:
+    """How well does this result sit in the neighbourhood the video described?"""
+    if not area:
+        return 0
+    want = _area_words(area)
+    if not want:
+        return 0
+    a = hit.get("address", {})
+    have = _area_words(" ".join(str(a.get(k) or "") for k in
+                                ("suburb", "neighbourhood", "quarter", "city_district",
+                                 "road", "hamlet", "borough")))
+    have |= _area_words(hit.get("display_name", ""))
+    return 2 if want & have else 0
+
+
+def _is_risky_name(name: str) -> bool:
+    """Some names match half a city. 'Fortunato' and 'Beam' are common words that
+    will find *a* business almost anywhere. 'Matricianella' is distinctive enough
+    to trust on its own, and any multi-word name is safer still.
+
+    Risky means: one short word. Those we only accept in the right neighbourhood."""
+    words = [w for w in re.findall(r"[A-Za-z0-9']{2,}", name) if w.lower() not in
+             {"the", "la", "le", "il", "lo", "el", "de", "di", "da", "al", "au"}]
+    if len(words) >= 2:
+        return False
+    return not words or len(words[0]) < 12
+
+
+def look_up(name: str, city: str = "", country: str = "",
+            area: str = "") -> Optional[Dict[str, Any]]:
     """Return map details for a real venue, or None if it isn't one."""
-    key = f"{name}|{city}|{country}".lower()
+    key = f"{name}|{city}|{country}|{area}".lower()
     cache = _cache()
     if key in cache:
         return cache[key]
 
+    # The neighbourhood ranks the results; it must not narrow the search itself,
+    # or an over-specified query comes back empty.
     query = ", ".join(x for x in [name, city, country] if x)
     try:
         hits = _ask(query)
     except Exception:  # noqa: BLE001
         return None                                # network trouble: don't punish the place
 
-    best = None
+    ranked = []
     for h in hits:
         cls, typ = h.get("class", ""), h.get("type", "")
         if cls in BAD_CLASSES or cls not in GOOD_CLASSES:
@@ -157,6 +195,23 @@ def look_up(name: str, city: str = "", country: str = "") -> Optional[Dict[str, 
             continue                               # right name, wrong country
         if not _name_matches(name, h.get("name") or ""):
             continue                               # wrong place wearing a right address
+        ranked.append((_area_score(h, area), h))
+
+    # the one in the neighbourhood the video described wins
+    ranked.sort(key=lambda r: -r[0])
+
+    # A short name in the wrong neighbourhood is almost certainly a different
+    # business with a similar name. Better to say "not found" than to send
+    # someone across the city.
+    if ranked and area and _is_risky_name(name) and ranked[0][0] == 0:
+        result = {"found": False, "why": "no match in the area the video described"}
+        cache[key] = result
+        _save(cache)
+        return result
+
+    best = None
+    for _score, h in ranked[:1]:
+        typ = h.get("type", "")
         best = {
             "found": True,
             "name": h.get("name") or name,
@@ -171,19 +226,23 @@ def look_up(name: str, city: str = "", country: str = "") -> Optional[Dict[str, 
         }
         break
 
+    if best and ranked:
+        best["in_described_area"] = bool(ranked[0][0])
     result = best or {"found": False}
     cache[key] = result
     _save(cache)
     return result
 
 
-def verify_spots(spots: List[Dict[str, Any]], city: str = "",
-                 country: str = "") -> List[Dict[str, Any]]:
+def verify_spots(spots: List[Dict[str, Any]], city: str = "", country: str = "",
+                 area: str = "") -> List[Dict[str, Any]]:
     """Look each place up and fold what the map says back into it."""
     for sp in spots:
-        hit = look_up(sp.get("name", ""), city, country)
+        hit = look_up(sp.get("name", ""), city, country, sp.get("area") or area)
         if not hit or not hit.get("found"):
             sp["on_map"] = False
+            if hit and hit.get("why"):
+                sp["map_note"] = hit["why"]
             continue
         sp["on_map"] = True
         sp["name"] = hit["name"]                   # the map spells it correctly
