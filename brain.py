@@ -428,7 +428,9 @@ def listen_and_read(d: Path, prov: Dict[str, Any]) -> Dict[str, Any]:
             except Exception as e:  # noqa: BLE001
                 notes.append(f"Could not listen to the audio: {e}")
         else:
-            notes.append("This post had no sound to listen to.")
+            notes.append("This video came without an audio track, so there was "
+                         "nothing to listen to - the labels come from the caption "
+                         "and the text on screen.")
 
         if frames:
             content: List[Dict[str, Any]] = [{"type": "text", "text": SCREEN_PROMPT}]
@@ -762,7 +764,7 @@ def label(meta: Dict[str, Any], heard: Dict[str, str], prov: Dict[str, Any]) -> 
     prompt = LABEL_PROMPT.format(
         cats=", ".join(CATEGORIES),
         author=meta.get("author") or "unknown",
-        caption=(meta.get("caption") or "(none)")[:2000],
+        caption=(meta.get("caption") or "(none)")[:6000],
         hashtags=", ".join(meta.get("hashtags") or []) or "(none)",
         music=meta.get("music") or "(none)",
         kind=meta.get("kind") or "unknown",

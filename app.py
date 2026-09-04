@@ -24,6 +24,17 @@ LIB.mkdir(exist_ok=True)
 YTDLP = str(BIN / "yt-dlp")
 GALLERYDL = str(BIN / "gallery-dl")
 
+
+def ffmpeg_path() -> str:
+    """Our ffmpeg lives inside the project, not on the system path. yt-dlp needs
+    to be told where it is - without it, it cannot join TikTok's separate video
+    and audio streams and quietly hands back a silent video."""
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001
+        return ""
+
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic"}
 VIDEO_EXT = {".mp4", ".mov", ".webm", ".mkv", ".m4v", ".avi"}
 AUDIO_EXT = {".mp3", ".m4a", ".wav", ".aac", ".opus"}
@@ -192,9 +203,19 @@ def grab_link(url: str, d: Path) -> Dict[str, Any]:
         return ok and bool(collect_media(d))
 
     def try_ytdlp():
-        ok, out = run([YTDLP, "-o", str(d / "%(id)s.%(ext)s"),
-                       "--write-info-json", "--write-thumbnail",
-                       "--no-warnings", "--no-playlist", url])
+        cmd = [YTDLP, "-o", str(d / "%(id)s.%(ext)s"),
+               "--write-info-json", "--write-thumbnail",
+               "--no-warnings", "--no-playlist",
+               # TikTok's h265 ("bytevc1") copies advertise audio but arrive
+               # silent. The h264 ones really do carry sound, so ask for those
+               # first and only fall back if none exist.
+               "-f", ("b[vcodec^=h264]/b[vcodec^=avc]/"
+                      "bv*[vcodec^=h264]+ba/bv*+ba/b"),
+               "--merge-output-format", "mp4"]
+        ff = ffmpeg_path()
+        if ff:
+            cmd += ["--ffmpeg-location", ff]
+        ok, out = run(cmd + [url])
         log.append(("yt-dlp (video)", ok, out[-700:]))
         return ok and bool(collect_media(d))
 
