@@ -238,7 +238,9 @@ def verify_spots(spots: List[Dict[str, Any]], city: str = "", country: str = "",
                  area: str = "") -> List[Dict[str, Any]]:
     """Look each place up and fold what the map says back into it."""
     for sp in spots:
-        hit = look_up(sp.get("name", ""), city, country, sp.get("area") or area)
+        # Always judge against the neighbourhood the VIDEO described. Using the
+        # spot's own area lets a previous wrong match vouch for itself.
+        hit = look_up(sp.get("name", ""), city, country, area or sp.get("area") or "")
         if not hit or not hit.get("found"):
             sp["on_map"] = False
             if hit and hit.get("why"):
