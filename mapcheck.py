@@ -118,21 +118,39 @@ NOISE_WORDS = re.compile(
     re.I)
 
 
-def _name_matches(asked: str, found: str) -> bool:
-    """Guard against the map confidently returning something else entirely.
-    'La Terra' must not match 'ESA Centre for Earth Observation'."""
+def _name_score(asked: str, found: str) -> int:
+    """How well the map's name matches the one we heard.
+    3 = certain, 2 = very close, 1 = plausible but needs corroborating, 0 = no."""
     import difflib
     a, f = asked.strip().lower(), (found or "").strip().lower()
     if not a or not f:
-        return False
-    if a in f or f in a:
-        return True
-    if difflib.SequenceMatcher(None, a, f).ratio() >= 0.62:
-        return True
-    # compare the words that actually carry the name
+        return 0
+    if a == f or a in f or f in a:
+        return 3
+    ratio = difflib.SequenceMatcher(None, a, f).ratio()
+    if ratio >= 0.75:
+        return 3
     aw = {w for w in re.findall(r"[a-z0-9']{3,}", NOISE_WORDS.sub(" ", a))}
     fw = {w for w in re.findall(r"[a-z0-9']{3,}", NOISE_WORDS.sub(" ", f))}
-    return bool(aw and fw and len(aw & fw) / len(aw) >= 0.6)
+    if aw and fw:
+        share = len(aw & fw) / len(aw)
+        if share >= 0.6:
+            return 3
+        if share > 0:
+            return 2
+    if ratio >= 0.62:
+        return 2
+    if ratio >= 0.48:
+        return 1          # "Matricanella" vs "Matricianella" - only with support
+    return 0
+
+
+def _adds_new_word(asked: str, found: str) -> bool:
+    """Did the map turn our name into a different, longer one?
+    'La Pietra' -> 'La Pietra Scheggiata' is the map choosing a place for us."""
+    aw = {w for w in re.findall(r"[a-z0-9']{4,}", NOISE_WORDS.sub(" ", asked.lower()))}
+    fw = {w for w in re.findall(r"[a-z0-9']{4,}", NOISE_WORDS.sub(" ", (found or "").lower()))}
+    return bool(fw - aw) and aw.issubset(fw)
 
 
 def _area_words(text: str) -> set:
@@ -170,10 +188,14 @@ def _is_risky_name(name: str) -> bool:
     return not words or len(words[0]) < 12
 
 
-def look_up(name: str, city: str = "", country: str = "",
-            area: str = "") -> Optional[Dict[str, Any]]:
-    """Return map details for a real venue, or None if it isn't one."""
-    key = f"{name}|{city}|{country}|{area}".lower()
+def look_up(name: str, city: str = "", country: str = "", area: str = "",
+            near: str = "") -> Optional[Dict[str, Any]]:
+    """Return map details for a real venue, or None if it isn't one.
+
+    The video says which place is meant; the map says how it is spelled and where
+    it is. A name we half-heard is accepted only when the map's answer also sits
+    where the video said the place was."""
+    key = f"{name}|{city}|{country}|{area}|{near}".lower()
     cache = _cache()
     if key in cache:
         return cache[key]
@@ -186,31 +208,39 @@ def look_up(name: str, city: str = "", country: str = "",
     except Exception:  # noqa: BLE001
         return None                                # network trouble: don't punish the place
 
+    # Score every candidate on two independent things: does the name match, and
+    # does it sit where the video said it was. Either alone can mislead; together
+    # they pin the place down.
     ranked = []
     for h in hits:
-        cls, typ = h.get("class", ""), h.get("type", "")
+        cls = h.get("class", "")
         if cls in BAD_CLASSES or cls not in GOOD_CLASSES:
             continue                               # a road or a bus stop is not the place
         if not _in_right_place(h.get("address", {}), city, country):
             continue                               # right name, wrong country
-        if not _name_matches(name, h.get("name") or ""):
+        nscore = _name_score(name, h.get("name") or "")
+        if nscore == 0:
             continue                               # wrong place wearing a right address
-        ranked.append((_area_score(h, area), h))
+        near_hit = _area_score(h, near)             # what the video said about THIS place
+        area_hit = _area_score(h, area)             # what it said about the city
+        ranked.append({"h": h, "name": nscore, "near": near_hit, "area": area_hit,
+                       "total": nscore + near_hit + (area_hit and 1)})
 
-    # the one in the neighbourhood the video described wins
-    ranked.sort(key=lambda r: -r[0])
-
-    # A short name in the wrong neighbourhood is almost certainly a different
-    # business with a similar name. Better to say "not found" than to send
-    # someone across the city.
-    if ranked and area and _is_risky_name(name) and ranked[0][0] == 0:
-        result = {"found": False, "why": "no match in the area the video described"}
-        cache[key] = result
-        _save(cache)
-        return result
+    ranked.sort(key=lambda r: (-r["near"], -r["total"], -r["name"]))
 
     best = None
-    for _score, h in ranked[:1]:
+    for r in ranked:
+        h, corroborated = r["h"], bool(r["near"] or r["area"])
+        found_name = h.get("name") or name
+        # a shaky name needs the video to back up where it is
+        if r["name"] <= 1 and not corroborated:
+            continue
+        # a risky short name needs it too
+        if _is_risky_name(name) and (area or near) and not corroborated:
+            continue
+        # and the map must not swap our place for a longer-named different one
+        if _adds_new_word(name, found_name) and not corroborated:
+            continue
         typ = h.get("type", "")
         best = {
             "found": True,
@@ -223,12 +253,16 @@ def look_up(name: str, city: str = "", country: str = "",
             "osm_kind": typ.replace("_", " "),
             "bucket": OSM_TO_BUCKET.get(typ),
             "map_url": f"https://www.google.com/maps/search/?api=1&query={h.get('lat')},{h.get('lon')}",
+            "agrees_with_video": corroborated,
+            "why_matched": ("the video's own directions for this place" if r["near"]
+                            else "the area the video described" if r["area"]
+                            else "an exact name match"),
         }
         break
 
-    if best and ranked:
-        best["in_described_area"] = bool(ranked[0][0])
-    result = best or {"found": False}
+    result = best or {"found": False,
+                      "why": "nothing on the map matches both the name and where "
+                             "the video said it was"}
     cache[key] = result
     _save(cache)
     return result
@@ -240,7 +274,8 @@ def verify_spots(spots: List[Dict[str, Any]], city: str = "", country: str = "",
     for sp in spots:
         # Always judge against the neighbourhood the VIDEO described. Using the
         # spot's own area lets a previous wrong match vouch for itself.
-        hit = look_up(sp.get("name", ""), city, country, area or sp.get("area") or "")
+        hit = look_up(sp.get("name", ""), city, country,
+                      area or sp.get("area") or "", sp.get("near") or "")
         if not hit or not hit.get("found"):
             sp["on_map"] = False
             if hit and hit.get("why"):
@@ -258,4 +293,6 @@ def verify_spots(spots: List[Dict[str, Any]], city: str = "", country: str = "",
         if hit.get("bucket"):
             sp["bucket"] = hit["bucket"]           # the map knows better than we do
         sp["sure"] = "high"                        # confirmed by a real map
+        sp["agrees_with_video"] = hit.get("agrees_with_video", False)
+        sp["why_matched"] = hit.get("why_matched", "")
     return spots

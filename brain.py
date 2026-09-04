@@ -518,6 +518,9 @@ Answer with ONE JSON object and nothing else:
                NEVER describe where you found the information: no 'mentioned as',
                no 'shown on screen', no 'heard as', no 'the video says'. If you have
                nothing to say about the place itself, leave this empty.",
+      "near": "any location clue the evidence gives for THIS place - a street, a
+               landmark, a neighbourhood, what it is next to. Copy the words used,
+               e.g. 'near the Pantheon' or 'on Via Vittoria'. Empty if none given.",
       "source": "on-screen if the name was written on screen, spoken if only said out loud, caption if only in the caption",
       "sure": "high if the name was written on screen or spelled clearly, medium if heard clearly, low if you are guessing at the spelling"
     }}
@@ -581,8 +584,13 @@ Rules for "spots" - these matter most:
 - If the same place appears more than once with different spellings, include it ONCE,
   using the best spelling. Names written on screen are more reliable than names heard
   out loud - prefer the written spelling.
-- Speech-to-text mangles foreign names. If a name sounds garbled and you cannot tell
-  what it is, LEAVE IT OUT. A short honest list beats a long wrong one.
+- Speech-to-text mangles foreign names, and often glues a stray word onto them.
+  Give the venue's name ONLY: from "Gora Armando" give "Armando"; from "Armando
+  again" give "Armando"; from "the Matricanella" give "Matricanella". Strip
+  articles and leftover words, keep the name.
+- If a name is so garbled you cannot tell what it is, LEAVE IT OUT. A short honest
+  list beats a long wrong one. But a name you can read, even if the spelling may
+  be off, is worth including - it gets checked against a map afterwards.
 - If the evidence names no specific places at all, return an empty list. That is fine.
 
 Category guide:
@@ -773,6 +781,7 @@ def tidy_spots(raw: Any) -> List[Dict[str, str]]:
             "bucket": bucket_for(item),
             "kind": str(item.get("kind") or "").strip().lower(),
             "note": clean_note(str(item.get("note") or ""), name),
+            "near": str(item.get("near") or "").strip(),
             "source": str(item.get("source") or "").strip().lower(),
             "sure": str(item.get("sure") or "medium").strip().lower(),
         }
@@ -798,7 +807,7 @@ def label(meta: Dict[str, Any], heard: Dict[str, str], prov: Dict[str, Any]) -> 
     for model in prov["label_models"]:
         try:
             out = call(model, [{"role": "user", "content": prompt}], prov,
-                       max_tokens=7000, temperature=0.1, timeout=240, tries=2,
+                       max_tokens=7000, temperature=0.0, timeout=240, tries=2,
                        json_only=True)
             res = parse_json(out)
             res["labelled_by"] = model
