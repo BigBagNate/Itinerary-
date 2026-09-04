@@ -142,10 +142,10 @@ Things we haven't decided yet. Not blockers — just things to answer as we go.
 
 ## Where the details live
 
-**REFERENCE.md** is the working reference: what the tool does today, what it
+**Reference.md** is the working reference: what the tool does today, what it
 cannot do yet, everything we tested and proved, the dead ends not worth
 repeating, and what the free tiers cost. This file stays about *what we are
 building*; that one is about *what we know*.
 
-- **Sep 3, 2026** — Wrote REFERENCE.md: one place for everything tested and
+- **Sep 3, 2026** — Wrote Reference.md: one place for everything tested and
   proved, so findings stop living in chat history.
