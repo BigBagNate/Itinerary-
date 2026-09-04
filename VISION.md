@@ -137,3 +137,15 @@ Things we haven't decided yet. Not blockers — just things to answer as we go.
 - **Sep 2, 2026** — Built the local workbench: a page on Nathan's computer where
   he pastes a TikTok link or drops a file, and sees everything pulled out of it.
   Tested working on both videos and photo slideshows. See HOW-TO-START.md.
+
+---
+
+## Where the details live
+
+**REFERENCE.md** is the working reference: what the tool does today, what it
+cannot do yet, everything we tested and proved, the dead ends not worth
+repeating, and what the free tiers cost. This file stays about *what we are
+building*; that one is about *what we know*.
+
+- **Sep 3, 2026** — Wrote REFERENCE.md: one place for everything tested and
+  proved, so findings stop living in chat history.

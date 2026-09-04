@@ -3,3 +3,4 @@
 library/
 __pycache__/
 .mapcache.json
+.nearbycache.json

@@ -18,6 +18,9 @@ from typing import Any, Dict, List, Optional
 import requests
 
 ENDPOINT = "https://nominatim.openstreetmap.org/search"
+OVERPASS = "https://overpass-api.de/api/interpreter"
+NEARBY_CACHE = Path(__file__).parent / ".nearbycache.json"
+NEARBY_RADIUS = 900          # metres. 400 missed a place 600m from the landmark.
 UA = "ItineraryWorkbench/0.1 (personal trip planner; https://github.com/BigBagNate/Itinerary-)"
 CACHE_FILE = Path(__file__).parent / ".mapcache.json"
 
@@ -268,14 +271,152 @@ def look_up(name: str, city: str = "", country: str = "", area: str = "",
     return result
 
 
+# ---------------------------------------------------------------- location first
+#
+# Searching the map by name fails when the name is wrong: "Matricanella" returns
+# nothing, "Armando" returns a butcher and a bridge. So when that happens, work
+# the other way round - ask what is actually AT the place the video described,
+# then find our name in that list.
+
+def _nearby_cache() -> Dict[str, Any]:
+    if NEARBY_CACHE.exists():
+        try:
+            return json.loads(NEARBY_CACHE.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            pass
+    return {}
+
+
+def landmark_point(clue: str, city: str, country: str):
+    """Turn 'near the Pantheon' into a point on the map."""
+    words = " ".join(w for w in re.split(r"\s+", clue or "")
+                     if w.lower() not in {"near", "the", "in", "at", "on", "by",
+                                          "around", "close", "to", "area", "next"})
+    if not words.strip():
+        return None
+    try:
+        hits = _ask(", ".join(x for x in [words.strip(), city, country] if x))
+    except Exception:  # noqa: BLE001
+        return None
+    if not hits:
+        return None
+    return float(hits[0]["lat"]), float(hits[0]["lon"])
+
+
+def venues_around(lat: float, lon: float) -> List[Dict[str, Any]]:
+    """Everything named and visitable within walking distance of a point."""
+    key = f"{lat:.4f},{lon:.4f},{NEARBY_RADIUS}"
+    cache = _nearby_cache()
+    if key in cache:
+        return cache[key]
+    kinds = "restaurant|cafe|bar|fast_food|pub|ice_cream|bakery|marketplace|nightclub"
+    q = (f'[out:json][timeout:50];('
+         f'node["name"]["amenity"~"{kinds}"](around:{NEARBY_RADIUS},{lat},{lon});'
+         f'way["name"]["amenity"~"{kinds}"](around:{NEARBY_RADIUS},{lat},{lon});'
+         f'node["name"]["shop"](around:{NEARBY_RADIUS},{lat},{lon});'
+         f'node["name"]["tourism"](around:{NEARBY_RADIUS},{lat},{lon});'
+         f');out center tags;')
+    with _lock:
+        gap = time.time() - _last_call[0]
+        if gap < MIN_GAP:
+            time.sleep(MIN_GAP - gap)
+        _last_call[0] = time.time()
+    try:
+        r = requests.get(OVERPASS, params={"data": q},
+                         headers={"User-Agent": UA}, timeout=90)
+        if r.status_code != 200:
+            return []
+        out = []
+        for e in r.json().get("elements", []):
+            t = e.get("tags", {})
+            if not t.get("name"):
+                continue
+            centre = e.get("center") or {}
+            out.append({
+                "name": t["name"],
+                "kind": (t.get("amenity") or t.get("shop") or t.get("tourism") or ""),
+                "street": " ".join(x for x in [t.get("addr:housenumber"),
+                                               t.get("addr:street")] if x),
+                "lat": e.get("lat") or centre.get("lat"),
+                "lon": e.get("lon") or centre.get("lon"),
+            })
+    except Exception:  # noqa: BLE001
+        return []
+    cache[key] = out
+    try:
+        NEARBY_CACHE.write_text(json.dumps(cache), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def find_near(name: str, clue: str, city: str, country: str) -> Optional[Dict[str, Any]]:
+    """Our name, matched against what is really there."""
+    import difflib
+    pt = landmark_point(clue, city, country)
+    if not pt:
+        return None
+    places = venues_around(*pt)
+    if not places:
+        return None
+    low = name.lower().strip()
+    core = max(re.findall(r"[A-Za-z']{3,}", name) or [name], key=len).lower()
+
+    def whole_word(needle: str, hay: str) -> bool:
+        """"at" must not match inside "fortunato"."""
+        if len(needle) < 4:
+            return False
+        return re.search(r"(?<![a-z])" + re.escape(needle) + r"(?![a-z])", hay) is not None
+
+    best, best_score = None, 0.0
+    for v in places:
+        vl = v["name"].lower()
+        if whole_word(low, vl) or whole_word(vl, low):
+            score = 1.0
+        elif whole_word(core, vl):
+            # sharing one word is not enough if the map's name is a different,
+            # much longer one: "La Pietra" is not "Antics Osteria Di Pietra"
+            ours = set(re.findall(r"[a-z']{4,}", NOISE_WORDS.sub(" ", low)))
+            clue_words = set(re.findall(r"[a-z']{4,}", (clue or "").lower()))
+            # "Armando al Pantheon" adds "Pantheon" - but that is the very landmark
+            # we searched near, so it corroborates. "Antics" corroborates nothing.
+            extra = [w for w in re.findall(r"[a-z']{4,}", NOISE_WORDS.sub(" ", vl))
+                     if w not in ours and w not in clue_words]
+            if extra:
+                continue
+            score = 0.9                       # "Armando" inside "Armando al Pantheon"
+        else:
+            score = difflib.SequenceMatcher(None, low, vl).ratio()
+            if score < 0.78 or min(len(low), len(vl)) < 5:
+                continue
+        if score > best_score:
+            best, best_score = v, score
+    if not best:
+        return None
+    return {
+        "found": True, "name": best["name"],
+        "address": best["street"] or "", "area": "",
+        "city": city, "lat": best["lat"], "lon": best["lon"],
+        "osm_kind": (best["kind"] or "").replace("_", " "),
+        "bucket": OSM_TO_BUCKET.get(best["kind"]),
+        "map_url": f"https://www.google.com/maps/search/?api=1&query={best['lat']},{best['lon']}",
+        "agrees_with_video": True,
+        "why_matched": f"found near {clue.strip()}, where the video said it was",
+    }
+
+
 def verify_spots(spots: List[Dict[str, Any]], city: str = "", country: str = "",
                  area: str = "") -> List[Dict[str, Any]]:
     """Look each place up and fold what the map says back into it."""
     for sp in spots:
         # Always judge against the neighbourhood the VIDEO described. Using the
         # spot's own area lets a previous wrong match vouch for itself.
+        clue = sp.get("near") or area or sp.get("area") or ""
         hit = look_up(sp.get("name", ""), city, country,
                       area or sp.get("area") or "", sp.get("near") or "")
+        if (not hit or not hit.get("found")) and clue:
+            # the name search failed - ask what is actually there instead
+            hit = find_near(sp.get("name", ""), clue, city, country) or hit
         if not hit or not hit.get("found"):
             sp["on_map"] = False
             if hit and hit.get("why"):

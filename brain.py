@@ -518,9 +518,11 @@ Answer with ONE JSON object and nothing else:
                NEVER describe where you found the information: no 'mentioned as',
                no 'shown on screen', no 'heard as', no 'the video says'. If you have
                nothing to say about the place itself, leave this empty.",
-      "near": "any location clue the evidence gives for THIS place - a street, a
-               landmark, a neighbourhood, what it is next to. Copy the words used,
-               e.g. 'near the Pantheon' or 'on Via Vittoria'. Empty if none given.",
+      "near": "ONLY the place-name part of any location clue for THIS spot - the
+               street, landmark or neighbourhood and nothing else. Write 'Via
+               Vittoria', not 'on Via Vittoria after the bakery'. Write 'Pantheon',
+               not 'near the Pantheon, ask for Claudio'. No verbs, no directions,
+               no names of people, no advice. Empty if the evidence gives none.",
       "source": "on-screen if the name was written on screen, spoken if only said out loud, caption if only in the caption",
       "sure": "high if the name was written on screen or spelled clearly, medium if heard clearly, low if you are guessing at the spelling"
     }}
@@ -724,6 +726,27 @@ def is_filler(n: str) -> bool:
     return n.strip(" .,;:-").lower() in {"none", "n/a", "na", "-", "unknown"}
 
 
+NEAR_NOISE = re.compile(
+    r"\b(?:near(?:by)?|next\s+to|beside|close\s+to|just\s+off|located|situated|"
+    r"around|behind|opposite|across\s+from|in|on|at|by|the|a|an|it'?s|is|"
+    r"area|district|neighbou?rhood|quarter|side|right|down|up|from|to|"
+    r"ask\s+for|recommended|after|before|between)\b", re.I)
+
+
+def clean_near(text: str) -> str:
+    """Keep the place-name part of a location clue and drop the rest.
+    'on Via Vittoria after the Bouette, ask for Sandro' -> 'Via Vittoria'."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    t = re.split(r"[,;.]| - ", t)[0]              # first clause only
+    t = NEAR_NOISE.sub(" ", t)
+    t = re.sub(r"\s+", " ", t).strip(" ,;:-'\"")
+    if len(t) < 3 or not re.search(r"[A-Za-z]{3}", t):
+        return ""
+    return t
+
+
 def clean_note(note: str, name: str) -> str:
     """Strip the machine talking about itself. A note should describe the place."""
     n = (note or "").strip()
@@ -781,7 +804,7 @@ def tidy_spots(raw: Any) -> List[Dict[str, str]]:
             "bucket": bucket_for(item),
             "kind": str(item.get("kind") or "").strip().lower(),
             "note": clean_note(str(item.get("note") or ""), name),
-            "near": str(item.get("near") or "").strip(),
+            "near": clean_near(str(item.get("near") or "")),
             "source": str(item.get("source") or "").strip().lower(),
             "sure": str(item.get("sure") or "medium").strip().lower(),
         }
